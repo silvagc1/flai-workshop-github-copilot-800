@@ -93,6 +93,39 @@ class LeaderboardViewSet(viewsets.ModelViewSet):
     queryset = Leaderboard.objects.all().order_by('rank')
     serializer_class = LeaderboardSerializer
 
+    def list(self, request):
+        """Get user-based leaderboard by aggregating activity data"""
+        # Get all users
+        users = User.objects.all()
+        leaderboard_data = []
+        
+        for user in users:
+            # Get all activities for this user
+            user_activities = Activity.objects.filter(user_id=str(user._id))
+            
+            # Calculate statistics
+            total_calories = sum(activity.calories_burned for activity in user_activities)
+            total_distance = sum(activity.distance or 0 for activity in user_activities)
+            activity_count = user_activities.count()
+            total_points = total_calories + (int(total_distance) * 10)  # Points formula
+            
+            leaderboard_data.append({
+                'user_id': str(user._id),
+                'user_name': user.username,
+                'username': user.username,
+                'full_name': user.full_name,
+                'team_id': user.team_id,
+                'total_points': total_points,
+                'total_calories': total_calories,
+                'total_distance': round(total_distance, 2),
+                'activity_count': activity_count
+            })
+        
+        # Sort by total points descending
+        leaderboard_data.sort(key=lambda x: x['total_points'], reverse=True)
+        
+        return Response(leaderboard_data)
+
     @action(detail=False, methods=['get'])
     def top(self, request):
         """Get top teams"""
