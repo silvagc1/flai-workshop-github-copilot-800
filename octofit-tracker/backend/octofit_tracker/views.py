@@ -1,0 +1,163 @@
+from rest_framework import viewsets, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from .models import User, Team, Activity, Leaderboard, Workout
+from .serializers import (
+    UserSerializer, 
+    TeamSerializer, 
+    ActivitySerializer, 
+    LeaderboardSerializer, 
+    WorkoutSerializer
+)
+
+
+class UserViewSet(viewsets.ModelViewSet):
+    """
+    API endpoint for users
+    """
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
+
+    @action(detail=False, methods=['get'])
+    def by_team(self, request):
+        """Get users by team_id"""
+        team_id = request.query_params.get('team_id')
+        if team_id:
+            users = User.objects.filter(team_id=team_id)
+            serializer = self.get_serializer(users, many=True)
+            return Response(serializer.data)
+        return Response({"error": "team_id parameter required"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class TeamViewSet(viewsets.ModelViewSet):
+    """
+    API endpoint for teams
+    """
+    queryset = Team.objects.all()
+    serializer_class = TeamSerializer
+
+    @action(detail=True, methods=['post'])
+    def add_member(self, request, pk=None):
+        """Add a member to a team"""
+        team = self.get_object()
+        user_id = request.data.get('user_id')
+        if user_id:
+            if user_id not in team.members:
+                team.members.append(user_id)
+                team.save()
+            return Response(TeamSerializer(team).data)
+        return Response({"error": "user_id required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['post'])
+    def remove_member(self, request, pk=None):
+        """Remove a member from a team"""
+        team = self.get_object()
+        user_id = request.data.get('user_id')
+        if user_id and user_id in team.members:
+            team.members.remove(user_id)
+            team.save()
+            return Response(TeamSerializer(team).data)
+        return Response({"error": "user_id not found in team"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ActivityViewSet(viewsets.ModelViewSet):
+    """
+    API endpoint for activities
+    """
+    queryset = Activity.objects.all()
+    serializer_class = ActivitySerializer
+
+    @action(detail=False, methods=['get'])
+    def by_user(self, request):
+        """Get activities by user_id"""
+        user_id = request.query_params.get('user_id')
+        if user_id:
+            activities = Activity.objects.filter(user_id=user_id).order_by('-date')
+            serializer = self.get_serializer(activities, many=True)
+            return Response(serializer.data)
+        return Response({"error": "user_id parameter required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['get'])
+    def recent(self, request):
+        """Get recent activities"""
+        limit = int(request.query_params.get('limit', 10))
+        activities = Activity.objects.all().order_by('-date')[:limit]
+        serializer = self.get_serializer(activities, many=True)
+        return Response(serializer.data)
+
+
+class LeaderboardViewSet(viewsets.ModelViewSet):
+    """
+    API endpoint for leaderboard
+    """
+    queryset = Leaderboard.objects.all().order_by('rank')
+    serializer_class = LeaderboardSerializer
+
+    def list(self, request):
+        """Get user-based leaderboard by aggregating activity data"""
+        # Get all users
+        users = User.objects.all()
+        leaderboard_data = []
+        
+        for user in users:
+            # Get all activities for this user
+            user_activities = Activity.objects.filter(user_id=str(user._id))
+            
+            # Calculate statistics
+            total_calories = sum(activity.calories_burned for activity in user_activities)
+            total_distance = sum(activity.distance or 0 for activity in user_activities)
+            activity_count = user_activities.count()
+            total_points = total_calories + (int(total_distance) * 10)  # Points formula
+            
+            leaderboard_data.append({
+                'user_id': str(user._id),
+                'user_name': user.username,
+                'username': user.username,
+                'full_name': user.full_name,
+                'team_id': user.team_id,
+                'total_points': total_points,
+                'total_calories': total_calories,
+                'total_distance': round(total_distance, 2),
+                'activity_count': activity_count
+            })
+        
+        # Sort by total points descending
+        leaderboard_data.sort(key=lambda x: x['total_points'], reverse=True)
+        
+        return Response(leaderboard_data)
+
+    @action(detail=False, methods=['get'])
+    def top(self, request):
+        """Get top teams"""
+        limit = int(request.query_params.get('limit', 10))
+        leaderboard = Leaderboard.objects.all().order_by('rank')[:limit]
+        serializer = self.get_serializer(leaderboard, many=True)
+        return Response(serializer.data)
+
+
+class WorkoutViewSet(viewsets.ModelViewSet):
+    """
+    API endpoint for workouts
+    """
+    queryset = Workout.objects.all()
+    serializer_class = WorkoutSerializer
+
+    @action(detail=False, methods=['get'])
+    def by_difficulty(self, request):
+        """Get workouts by difficulty"""
+        difficulty = request.query_params.get('difficulty')
+        if difficulty:
+            workouts = Workout.objects.filter(difficulty=difficulty)
+            serializer = self.get_serializer(workouts, many=True)
+            return Response(serializer.data)
+        return Response({"error": "difficulty parameter required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['get'])
+    def by_category(self, request):
+        """Get workouts by category"""
+        category = request.query_params.get('category')
+        if category:
+            workouts = Workout.objects.filter(category=category)
+            serializer = self.get_serializer(workouts, many=True)
+            return Response(serializer.data)
+        return Response({"error": "category parameter required"}, status=status.HTTP_400_BAD_REQUEST)
